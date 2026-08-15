@@ -28,11 +28,22 @@ body {
     overflow: hidden; 
 }
 
+/* React mount point must participate in the flex chain, or it sizes to its
+   content instead of the viewport and nothing below it can scroll. */
+#root {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+}
+
 /* --- MAIN CONTAINER: Maximize space --- */
 #game-container {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     margin: 0 auto;
     width: 100%;
 }
@@ -214,11 +225,20 @@ body {
 /* --- CONTROLS (Bottom Bar) --- */
 #control-panel {
     display: flex;
-    padding: 10px;
-    gap: 10px;
+    flex-direction: column;
     background: white;
     border-top: 1px solid #ddd;
-    overflow-x: auto; 
+}
+
+.control-row {
+    display: flex;
+    padding: 10px;
+    gap: 10px;
+    overflow-x: auto;
+}
+
+.control-row + .control-row {
+    padding-top: 0;
 }
 
 button {
@@ -240,7 +260,33 @@ button:disabled { background: #bdbdbd; cursor: not-allowed; }
 
 button.undo-btn { background: #757575; }
 button.new-btn { background: #d32f2f; }
-button.history-btn { background: #00bcd4; } 
+button.load-btn { background: #6a1b9a; }
+button.history-btn { background: #00bcd4; }
+
+/* Load Game list */
+.game-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 15px 0;
+    max-height: 50vh;
+    overflow-y: auto;
+}
+.game-list-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: #f9f9f9;
+    cursor: pointer;
+    text-align: left;
+}
+.game-list-item:hover { background: #eef; border-color: var(--primary); }
+.game-list-item .game-list-players { font-weight: bold; }
+.game-list-item .game-list-meta { font-size: 0.8rem; color: #666; }
 
 /* --- MODAL --- */
 .hidden { display: none !important; }
@@ -342,9 +388,19 @@ button.history-btn { background: #00bcd4; }
 /* --- HISTORY TABLE STYLES --- */
 #history-container {
     flex: 1;
-    overflow-x: auto; 
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     padding: 10px 5px;
     background: white;
+    box-sizing: border-box;
+}
+
+.history-table-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .history-table {
@@ -782,6 +838,41 @@ const useLocalStorage = (key, initialValue) => {
   return [storedValue, setValue];
 };
 
+// --- SAVED GAMES STORAGE (localStorage) ---
+const SAVED_GAMES_KEY = 'estimationTrackerSavedGames';
+
+const generateGameID = () => {
+  if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+  return `game-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
+const loadSavedGames = () => {
+  try {
+    const raw = window.localStorage.getItem(SAVED_GAMES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    console.error(error);
+    return {};
+  }
+};
+
+const upsertSavedGame = (gameID, state) => {
+  if (!gameID) return;
+  try {
+    const games = loadSavedGames();
+    const existing = games[gameID];
+    games[gameID] = {
+      id: gameID,
+      createdAt: existing ? existing.createdAt : new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      state
+    };
+    window.localStorage.setItem(SAVED_GAMES_KEY, JSON.stringify(games));
+  } catch (error) {
+    console.error(error);
+  }
+};
+
 // --- 1. CONSTANTS & INITIAL STATE ---
 const SUITS = ['H', 'D', 'C', 'S', 'Sun'];
 // Rounds 14-18 are special rounds
@@ -1010,7 +1101,14 @@ const gameReducer = (state, action) => {
       return {
         ...INITIAL_GAME_STATE,
         isGameActive: true,
-        currentRoundState: getInitialRoundState()
+        currentRoundState: getInitialRoundState(),
+        players: action.payload.players,
+        gameID: action.payload.gameID
+      };
+    case 'LOAD_GAME':
+      return {
+        ...action.payload,
+        isGameActive: true
       };
     case 'SET_PLAYER_NAME':
       return {
@@ -1345,9 +1443,7 @@ const HistoryTable = ({
   return /*#__PURE__*/React.createElement("div", {
     id: "history-container"
   }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      overflowX: 'auto'
-    }
+    className: "history-table-scroll"
   }, /*#__PURE__*/React.createElement("table", {
     className: "history-table"
   }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
@@ -1399,9 +1495,27 @@ const App = () => {
     }));
     dispatch({
       type: 'START_NEW_GAME',
-      payload: initialPlayers
+      payload: {
+        players: initialPlayers,
+        gameID: generateGameID()
+      }
     });
   }, []);
+
+  // --- EFFECTS: Autosave to localStorage ---
+  // Triggers: a new round starts, bids are placed (bidding stage completes), or a player name changes.
+  useEffect(() => {
+    if (!state.gameID) return;
+    upsertSavedGame(state.gameID, state);
+  }, [state.gameID, state.currentRound]);
+  useEffect(() => {
+    if (!state.gameID || state.currentStage !== 2) return;
+    upsertSavedGame(state.gameID, state);
+  }, [state.gameID, state.currentStage]);
+  useEffect(() => {
+    if (!state.gameID) return;
+    upsertSavedGame(state.gameID, state);
+  }, [state.gameID, state.players.map(p => p.name).join('|')]);
 
   // --- HANDLERS ---
   const handleNext = () => dispatch({
@@ -1415,9 +1529,46 @@ const App = () => {
     }));
     dispatch({
       type: 'START_NEW_GAME',
-      payload: initialPlayers
+      payload: {
+        players: initialPlayers,
+        gameID: generateGameID()
+      }
     });
     setView('scoreboard');
+  };
+  const handleLoadGame = id => {
+    const games = loadSavedGames();
+    const record = games[id];
+    if (!record) {
+      alert("Saved game not found.");
+      return;
+    }
+    if (state.isGameActive && !confirm("Loading this game will discard the current one. Continue?")) return;
+    dispatch({
+      type: 'LOAD_GAME',
+      payload: record.state
+    });
+    setView('scoreboard');
+    closeModal();
+  };
+  const openLoadModal = () => {
+    const games = Object.values(loadSavedGames()).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    const content = games.length === 0 ? /*#__PURE__*/React.createElement("p", null, "No saved games yet.") : /*#__PURE__*/React.createElement("div", {
+      className: "game-list"
+    }, games.map(g => /*#__PURE__*/React.createElement("div", {
+      key: g.id,
+      className: "game-list-item",
+      onClick: () => handleLoadGame(g.id)
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "game-list-players"
+    }, g.state.players.map(p => p.name).join(', ')), /*#__PURE__*/React.createElement("span", {
+      className: "game-list-meta"
+    }, `Round ${g.state.currentRound} · Updated ${new Date(g.updatedAt).toLocaleString()}`))));
+    setModal({
+      show: true,
+      title: 'Load Game',
+      content
+    });
   };
   const handleUndo = () => {
     let warningMessage = "";
@@ -1581,6 +1732,21 @@ const App = () => {
     setView: setView
   }), /*#__PURE__*/React.createElement("div", {
     id: "control-panel"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "control-row"
+  }, /*#__PURE__*/React.createElement("button", {
+    id: "new-btn",
+    onClick: handleNewGame,
+    className: "new-btn"
+  }, "NEW"), /*#__PURE__*/React.createElement("button", {
+    id: "load-btn",
+    onClick: openLoadModal,
+    className: "load-btn"
+  }, "LOAD"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setView(view === 'scoreboard' ? 'history' : 'scoreboard'),
+    className: "history-btn"
+  }, view === 'scoreboard' ? 'DETAILS' : 'SCOREBOARD')), /*#__PURE__*/React.createElement("div", {
+    className: "control-row"
   }, /*#__PURE__*/React.createElement("button", {
     id: "next-btn",
     onClick: handleNext,
@@ -1590,14 +1756,7 @@ const App = () => {
     onClick: handleUndo,
     className: "undo-btn",
     disabled: !state.isGameActive || state.currentRound === 1 && state.currentStage === 1 || view !== 'scoreboard'
-  }, "UNDO"), /*#__PURE__*/React.createElement("button", {
-    id: "new-btn",
-    onClick: handleNewGame,
-    className: "new-btn"
-  }, "NEW"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setView(view === 'scoreboard' ? 'history' : 'scoreboard'),
-    className: "history-btn"
-  }, view === 'scoreboard' ? 'DETAILS' : 'SCOREBOARD')), /*#__PURE__*/React.createElement(Modal, {
+  }, "UNDO"))), /*#__PURE__*/React.createElement(Modal, {
     ...modal,
     onClose: closeModal
   }));
