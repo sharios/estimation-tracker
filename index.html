@@ -920,7 +920,6 @@ const INITIAL_GAME_STATE = {
     roundData: []
   }],
   currentRoundState: getInitialRoundState(),
-  stageHistory: [],
   lastRoundOutcome: 'match' // 'match' or 'mismatch'
 };
 
@@ -1169,13 +1168,6 @@ const gameReducer = (state, action) => {
         let newState = {
           ...state
         };
-        const historyItem = {
-          currentRoundState: state.currentRoundState,
-          lastBidderIndex: state.lastBidderIndex,
-          suit: state.suit,
-          playersTotalScore: state.players.map(p => p.totalScore),
-          multiplier: state.multiplier
-        };
         switch (state.currentStage) {
           case 1:
             // Bidding -> Tricks
@@ -1185,7 +1177,6 @@ const gameReducer = (state, action) => {
               alert("Error: Total bids must not equal 13. Please adjust a bid.");
               return state; // Stay in stage 1
             }
-            newState.stageHistory = [...state.stageHistory, historyItem];
             newState.currentRoundState = calculateBidModifiers(state);
             newState.currentStage = 2;
             return newState;
@@ -1197,7 +1188,6 @@ const gameReducer = (state, action) => {
               alert(`Error: Total tricks is ${totalTricks}. Must equal 13.`);
               return state; // Stay in stage 2
             }
-            newState.stageHistory = [...state.stageHistory, historyItem];
             return calculateScores(newState);
           // Returns state with stage 3, scores, and lastRoundOutcome
 
@@ -1213,7 +1203,6 @@ const gameReducer = (state, action) => {
             newState.currentStage = 1;
             newState.lastBidderIndex = -1;
             newState.currentRoundState = getInitialRoundState();
-            newState.stageHistory = [];
 
             // Multiplier update logic
             let nextMultiplier = 1;
@@ -1238,63 +1227,76 @@ const gameReducer = (state, action) => {
       }
     case 'HANDLE_UNDO':
       {
+        // A round has three stable states: Bidding (1) -> Tricks (2) -> Scored (3).
+        // Undo always steps back exactly one stable state, resetting whatever was
+        // entered to get to the current state (never leaving stale values behind).
+        if (state.currentStage === 3) {
+          // Scored -> Tricks: keep the placed bids, clear tricks and scores.
+          return {
+            ...state,
+            currentStage: 2,
+            currentRoundState: {
+              ...state.currentRoundState,
+              tricks: [null, null, null, null],
+              trickAmendments: ['', '', '', ''],
+              roundScores: [0, 0, 0, 0]
+            }
+          };
+        }
+        if (state.currentStage === 2) {
+          // Tricks -> Bidding: keep the chosen suit, clear all bids.
+          return {
+            ...state,
+            currentStage: 1,
+            lastBidderIndex: -1,
+            currentRoundState: getInitialRoundState()
+          };
+        }
+        // currentStage === 1: roll back into the previous round's Scored state.
+        if (state.currentRound === 1) return state;
         let newState = {
           ...state
         };
-        if (state.currentStage === 2 || state.currentStage === 3) {
-          const previousStageState = state.stageHistory.pop();
-          if (previousStageState) {
-            newState.currentStage = state.currentStage === 3 ? 2 : 1;
-            return {
-              ...newState,
-              ...previousStageState,
-              stageHistory: state.stageHistory
-            };
+        newState.currentRound--;
+        newState.currentStage = 3;
+        let players = [...state.players];
+        let roundNMinus1Data = [];
+        players = players.map(player => {
+          const roundData = player.roundData.pop();
+          if (roundData) {
+            player.totalScore -= roundData.score;
+            roundNMinus1Data.push(roundData);
+          } else {
+            roundNMinus1Data.push({
+              bid: null,
+              trick: null,
+              score: 0,
+              multiplierUsed: 1,
+              suit: null
+            });
           }
-        } else if (state.currentStage === 1 && state.currentRound > 1) {
-          newState.currentRound--;
-          newState.currentStage = 3;
-          let players = [...state.players];
-          let roundNMinus1Data = [];
-          players = players.map(player => {
-            const roundData = player.roundData.pop();
-            if (roundData) {
-              player.totalScore -= roundData.score;
-              roundNMinus1Data.push(roundData);
-            } else {
-              roundNMinus1Data.push({
-                bid: null,
-                trick: null,
-                score: 0,
-                multiplierUsed: 1,
-                suit: null
-              });
-            }
-            return player;
-          });
-          const previousMultiplier = roundNMinus1Data[0].multiplierUsed;
-          const previousSuit = roundNMinus1Data[0].suit;
-          let restoredRoundState = {
-            ...getInitialRoundState(),
-            bids: roundNMinus1Data.map(d => d.bid),
-            tricks: roundNMinus1Data.map(d => d.trick),
-            roundScores: roundNMinus1Data.map(d => d.score)
-          };
-          restoredRoundState = calculateBidModifiers({
-            ...state,
-            currentRoundState: restoredRoundState
-          });
-          const restoredRoundMatchCount = roundNMinus1Data.filter(d => d.bid === d.trick).length;
-          const restoredOutcome = restoredRoundMatchCount === 0 ? 'mismatch' : 'match';
-          newState.players = players;
-          newState.multiplier = previousMultiplier;
-          newState.suit = previousSuit;
-          newState.currentRoundState = restoredRoundState;
-          newState.stageHistory = [];
-          newState.lastRoundOutcome = restoredOutcome;
-          return newState;
-        }
-        return state;
+          return player;
+        });
+        const previousMultiplier = roundNMinus1Data[0].multiplierUsed;
+        const previousSuit = roundNMinus1Data[0].suit;
+        let restoredRoundState = {
+          ...getInitialRoundState(),
+          bids: roundNMinus1Data.map(d => d.bid),
+          tricks: roundNMinus1Data.map(d => d.trick),
+          roundScores: roundNMinus1Data.map(d => d.score)
+        };
+        restoredRoundState = calculateBidModifiers({
+          ...state,
+          currentRoundState: restoredRoundState
+        });
+        const restoredRoundMatchCount = roundNMinus1Data.filter(d => d.bid === d.trick).length;
+        const restoredOutcome = restoredRoundMatchCount === 0 ? 'mismatch' : 'match';
+        newState.players = players;
+        newState.multiplier = previousMultiplier;
+        newState.suit = previousSuit;
+        newState.currentRoundState = restoredRoundState;
+        newState.lastRoundOutcome = restoredOutcome;
+        return newState;
       }
     default:
       return state;
@@ -1486,8 +1488,17 @@ const App = () => {
   const defaultNames = ["Player 1", "Player 2", "Player 3", "Player 4"];
   const [knownNames, setKnownNames] = useLocalStorage('knownPlayerNames', defaultNames);
 
-  // --- EFFECT: Start New Game ---
+  // --- EFFECT: Load the most recent saved game on startup, or start a new one ---
   useEffect(() => {
+    const savedGames = Object.values(loadSavedGames());
+    if (savedGames.length > 0) {
+      const mostRecent = savedGames.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))[0];
+      dispatch({
+        type: 'LOAD_GAME',
+        payload: mostRecent.state
+      });
+      return;
+    }
     const initialPlayers = INITIAL_GAME_STATE.players.map((p, i) => ({
       ...p,
       name: knownNames[i] || `Player ${i + 1}`
