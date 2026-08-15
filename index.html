@@ -222,23 +222,22 @@ body {
     line-height: 1;
 }
 
-/* --- CONTROLS (Bottom Bar) --- */
-#control-panel {
-    display: flex;
-    flex-direction: column;
-    background: white;
-    border-top: 1px solid #ddd;
-}
-
-.control-row {
+/* --- CONTROLS (Top & Bottom Bars) --- */
+#top-menu, #control-panel {
     display: flex;
     padding: 10px;
     gap: 10px;
+    background: white;
     overflow-x: auto;
+    flex-shrink: 0;
 }
 
-.control-row + .control-row {
-    padding-top: 0;
+#top-menu {
+    border-bottom: 1px solid #ddd;
+}
+
+#control-panel {
+    border-top: 1px solid #ddd;
 }
 
 button {
@@ -1722,18 +1721,8 @@ const App = () => {
   };
   return /*#__PURE__*/React.createElement("div", {
     id: "game-container"
-  }, view === 'scoreboard' ? /*#__PURE__*/React.createElement(Scoreboard, {
-    state: state,
-    openSuitModal: openSuitModal,
-    openNameModal: openNameModal,
-    openValueModal: openValueModal
-  }) : /*#__PURE__*/React.createElement(HistoryTable, {
-    state: state,
-    setView: setView
-  }), /*#__PURE__*/React.createElement("div", {
-    id: "control-panel"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "control-row"
+    id: "top-menu"
   }, /*#__PURE__*/React.createElement("button", {
     id: "new-btn",
     onClick: handleNewGame,
@@ -1745,8 +1734,16 @@ const App = () => {
   }, "LOAD"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setView(view === 'scoreboard' ? 'history' : 'scoreboard'),
     className: "history-btn"
-  }, view === 'scoreboard' ? 'DETAILS' : 'SCOREBOARD')), /*#__PURE__*/React.createElement("div", {
-    className: "control-row"
+  }, view === 'scoreboard' ? 'DETAILS' : 'SCOREBOARD')), view === 'scoreboard' ? /*#__PURE__*/React.createElement(Scoreboard, {
+    state: state,
+    openSuitModal: openSuitModal,
+    openNameModal: openNameModal,
+    openValueModal: openValueModal
+  }) : /*#__PURE__*/React.createElement(HistoryTable, {
+    state: state,
+    setView: setView
+  }), /*#__PURE__*/React.createElement("div", {
+    id: "control-panel"
   }, /*#__PURE__*/React.createElement("button", {
     id: "next-btn",
     onClick: handleNext,
@@ -1756,7 +1753,7 @@ const App = () => {
     onClick: handleUndo,
     className: "undo-btn",
     disabled: !state.isGameActive || state.currentRound === 1 && state.currentStage === 1 || view !== 'scoreboard'
-  }, "UNDO"))), /*#__PURE__*/React.createElement(Modal, {
+  }, "UNDO")), /*#__PURE__*/React.createElement(Modal, {
     ...modal,
     onClose: closeModal
   }));
