@@ -1235,9 +1235,16 @@ const gameReducer = (state, action) => {
         // entered to get to the current state (never leaving stale values behind).
         if (state.currentStage === 3) {
           // Scored -> Tricks: keep the placed bids, clear tricks and scores.
+          // calculateScores() already pushed this round's (not-yet-accumulated)
+          // entry into each player's roundData when advancing into Stage 3 —
+          // pop it back off so it doesn't linger as a stale/duplicate entry.
           return {
             ...state,
             currentStage: 2,
+            players: state.players.map(player => ({
+              ...player,
+              roundData: player.roundData.slice(0, -1)
+            })),
             currentRoundState: {
               ...state.currentRoundState,
               tricks: [null, null, null, null],
@@ -1262,24 +1269,30 @@ const gameReducer = (state, action) => {
         };
         newState.currentRound--;
         newState.currentStage = 3;
-        let players = [...state.players];
         let roundNMinus1Data = [];
-        players = players.map(player => {
-          const roundData = player.roundData.pop();
+        // A round's entry lives in roundData from the moment it reaches Stage 3
+        // (see calculateScores) and stays there — it's only removed if that same
+        // round is undone past Stage 3. So landing back on round N-1's Stage 3
+        // here must leave its entry in place (peek), not pop it off, or the next
+        // undo would corrupt an earlier, already-committed round's entry instead.
+        let players = state.players.map(player => {
+          const roundData = player.roundData[player.roundData.length - 1];
           if (roundData) {
-            player.totalScore -= roundData.score;
             roundNMinus1Data.push(roundData);
-          } else {
-            roundNMinus1Data.push({
-              bid: null,
-              trick: null,
-              score: 0,
-              multiplierUsed: 1,
-              suit: null,
-              bidAmendments: '',
-              trickAmendment: ''
-            });
+            return {
+              ...player,
+              totalScore: player.totalScore - roundData.score
+            };
           }
+          roundNMinus1Data.push({
+            bid: null,
+            trick: null,
+            score: 0,
+            multiplierUsed: 1,
+            suit: null,
+            bidAmendments: '',
+            trickAmendment: ''
+          });
           return player;
         });
         const previousMultiplier = roundNMinus1Data[0].multiplierUsed;
