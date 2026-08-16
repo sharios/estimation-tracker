@@ -1021,7 +1021,8 @@ const calculateScores = state => {
         trick: tricks[i],
         score: 0,
         multiplierUsed: currentMultiplier,
-        suit: newState.suit
+        suit: newState.suit,
+        bidAmendments: bidAmendments[i]
       });
     });
   } else {
@@ -1074,7 +1075,9 @@ const calculateScores = state => {
         trick,
         score: finalScore,
         multiplierUsed: currentMultiplier,
-        suit: newState.suit
+        suit: newState.suit,
+        bidAmendments: amendments,
+        trickAmendment: newTrickAmendments[i]
       });
     });
   }
@@ -1272,23 +1275,30 @@ const gameReducer = (state, action) => {
               trick: null,
               score: 0,
               multiplierUsed: 1,
-              suit: null
+              suit: null,
+              bidAmendments: '',
+              trickAmendment: ''
             });
           }
           return player;
         });
         const previousMultiplier = roundNMinus1Data[0].multiplierUsed;
         const previousSuit = roundNMinus1Data[0].suit;
-        let restoredRoundState = {
+        const restoredBids = roundNMinus1Data.map(d => d.bid);
+        const restoredTotalBids = restoredBids.reduce((sum, b) => sum + (b !== null ? b : 0), 0);
+        // Amendments (D/C/R and OL/OW markers) were finalized when the round was
+        // originally scored, so restore them as-is rather than recomputing them —
+        // recomputing C/R here would need the bidder-order state that no longer
+        // exists once a later round has been entered.
+        const restoredRoundState = {
           ...getInitialRoundState(),
-          bids: roundNMinus1Data.map(d => d.bid),
+          bids: restoredBids,
           tricks: roundNMinus1Data.map(d => d.trick),
-          roundScores: roundNMinus1Data.map(d => d.score)
+          roundScores: roundNMinus1Data.map(d => d.score),
+          bidAmendments: roundNMinus1Data.map(d => d.bidAmendments || ''),
+          trickAmendments: roundNMinus1Data.map(d => d.trickAmendment || ''),
+          bidDifference: restoredTotalBids - 13
         };
-        restoredRoundState = calculateBidModifiers({
-          ...state,
-          currentRoundState: restoredRoundState
-        });
         const restoredRoundMatchCount = roundNMinus1Data.filter(d => d.bid === d.trick).length;
         const restoredOutcome = restoredRoundMatchCount === 0 ? 'mismatch' : 'match';
         newState.players = players;
