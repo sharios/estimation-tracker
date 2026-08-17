@@ -98,6 +98,10 @@ body {
 .player-name:hover {
     background-color: #bbdefb;
 }
+.player-name.dealer {
+    outline: 2px solid #d32f2f;
+    outline-offset: 2px;
+}
 
 .player-total-score { 
     font-size: 1.8rem; 
@@ -1366,11 +1370,12 @@ const PlayerColumn = ({
   const trickAmendment = currentRoundState.trickAmendments[playerIndex];
   const isBidActive = currentStage === 1;
   const isTrickActive = currentStage === 2;
+  const isDealer = playerIndex === (state.currentRound - 1) % NUM_PLAYERS;
   return /*#__PURE__*/React.createElement("div", {
     className: "player-col",
     "data-player-index": playerIndex
   }, /*#__PURE__*/React.createElement("div", {
-    className: "player-name clickable",
+    className: `player-name clickable ${isDealer ? 'dealer' : ''}`,
     onClick: () => onOpenNameModal(playerIndex)
   }, player.name), /*#__PURE__*/React.createElement("div", {
     className: "player-total-score"
