@@ -78,14 +78,19 @@ body {
 #difference-col { flex: 0.8; background-color: #fff3e0; }
 
 /* Text Sizing for Mobile */
-.player-name { 
-    font-weight: bold; 
-    font-size: 1.1rem; 
-    margin-bottom: 3px; 
-    white-space: nowrap; 
-    overflow: hidden; 
-    text-overflow: ellipsis; 
+.player-name {
+    font-weight: bold;
+    font-size: 1.1rem;
+    margin-bottom: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     max-width: 100%;
+    /* overflow:hidden makes flexbox treat this item's automatic minimum
+       height as 0, so in a height-constrained column (landscape phones)
+       it gets shrunk to nothing before any sibling does. flex-shrink:0
+       keeps it at its natural height regardless of available space. */
+    flex-shrink: 0;
 
     /* New Styles for Clickable Box */
     padding: 4px 3px;
