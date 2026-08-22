@@ -393,6 +393,9 @@ button.history-btn { background: #00bcd4; }
     background-color: #2e7d32;
     color: #fff;
 }
+.value-option.trick-other {
+    background-color: #ffcdd2;
+}
 
 /* --- SUIT ICONS --- */
 .suit-h, .suit-d { color: var(--red-suit); } 
@@ -486,6 +489,13 @@ button.history-btn { background: #00bcd4; }
 .data-bid-trick {
     font-size: 0.9rem;
     font-weight: bold;
+}
+
+.data-qualifier {
+    font-size: 0.6rem;
+    font-weight: bold;
+    color: var(--red-suit);
+    margin: 0 1px;
 }
 
 .data-score {
@@ -1516,7 +1526,11 @@ const HistoryTable = ({
     className: "compact-data-container"
   }, /*#__PURE__*/React.createElement("span", {
     className: "data-bid-trick"
-  }, data.bid, "|", data.trick), /*#__PURE__*/React.createElement("span", {
+  }, data.bid, data.bidAmendments && /*#__PURE__*/React.createElement("sup", {
+    className: "data-qualifier"
+  }, data.bidAmendments), "|", data.trick, data.trickAmendment && /*#__PURE__*/React.createElement("sup", {
+    className: "data-qualifier"
+  }, data.trickAmendment)), /*#__PURE__*/React.createElement("span", {
     className: data.bid === data.trick ? 'history-score-match data-score' : 'history-score-mismatch data-score'
   }, data.score), /*#__PURE__*/React.createElement("span", {
     className: "data-total"
@@ -1762,7 +1776,7 @@ const App = () => {
       className: "value-option-grid"
     }, [...Array(MAX_BID_TRICK + 1).keys()].map(i => /*#__PURE__*/React.createElement("span", {
       key: i,
-      className: `value-option clickable ${isBid && i === disallowedValue ? 'disabled-bid' : ''} ${!isBid && i === playerBid ? 'matches-bid' : ''}`,
+      className: `value-option clickable ${isBid && i === disallowedValue ? 'disabled-bid' : ''} ${!isBid && i === playerBid ? 'matches-bid' : ''} ${!isBid && i !== playerBid ? 'trick-other' : ''}`,
       onClick: () => {
         if (isBid && i === disallowedValue) return;
         dispatch({
