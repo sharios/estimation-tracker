@@ -2,7 +2,7 @@
   "name": "Estimation Score Tracker",
   "short_name": "Estimation",
   "start_url": "./index.html",
-  "display": "standalone",
+  "display": "fullscreen",
   "orientation": "landscape",
   "background_color": "#f0f2f5",
   "theme_color": "#2196F3",
