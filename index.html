@@ -383,11 +383,14 @@ button.history-btn { background: #00bcd4; }
 }
 .value-option:hover { background-color: #ddd; }
 .value-option.disabled-bid {
-    background-color: #ffcdd2; 
-    color: #b71c1c; 
-    text-decoration: line-through; 
+    background-color: #ffcdd2;
+    color: #b71c1c;
+    text-decoration: line-through;
     pointer-events: none;
     opacity: 0.6;
+}
+.value-option.matches-bid {
+    color: #2e7d32;
 }
 
 /* --- SUIT ICONS --- */
@@ -1380,13 +1383,21 @@ const PlayerColumn = ({
   const isBidActive = currentStage === 1;
   const isTrickActive = currentStage === 2;
   const isDealer = playerIndex === (state.currentRound - 1) % NUM_PLAYERS;
+  const allScores = state.players.map(p => p.totalScore);
+  const maxScore = Math.max(...allScores);
+  const minScore = Math.min(...allScores);
+  // Only mark a leader/trailer once scores actually diverge — with every
+  // score tied (e.g. before Round 1 is scored) nobody is ahead or behind.
+  const scoresVary = maxScore !== minScore;
+  const isHighest = scoresVary && player.totalScore === maxScore;
+  const isLowest = scoresVary && player.totalScore === minScore;
   return /*#__PURE__*/React.createElement("div", {
     className: "player-col",
     "data-player-index": playerIndex
   }, /*#__PURE__*/React.createElement("div", {
     className: `player-name clickable ${isDealer ? 'dealer' : ''}`,
     onClick: () => onOpenNameModal(playerIndex)
-  }, player.name), /*#__PURE__*/React.createElement("div", {
+  }, player.name, isHighest && ' 👑', isLowest && ' 🪣'), /*#__PURE__*/React.createElement("div", {
     className: "player-total-score"
   }, player.totalScore), /*#__PURE__*/React.createElement("div", {
     className: "player-round-data"
@@ -1743,11 +1754,14 @@ const App = () => {
         disallowedValue = 13 - completedSum;
       }
     }
+    // When recording tricks, matching the player's own bid is what scores
+    // points, so call that number out in green among the picker options.
+    const playerBid = state.currentRoundState.bids[playerIndex];
     const content = /*#__PURE__*/React.createElement("div", {
       className: "value-option-grid"
     }, [...Array(MAX_BID_TRICK + 1).keys()].map(i => /*#__PURE__*/React.createElement("span", {
       key: i,
-      className: `value-option clickable ${isBid && i === disallowedValue ? 'disabled-bid' : ''}`,
+      className: `value-option clickable ${isBid && i === disallowedValue ? 'disabled-bid' : ''} ${!isBid && i === playerBid ? 'matches-bid' : ''}`,
       onClick: () => {
         if (isBid && i === disallowedValue) return;
         dispatch({
