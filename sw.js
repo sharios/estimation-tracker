@@ -1,4 +1,4 @@
-const CACHE_NAME = 'estimation-tracker-v5';
+const CACHE_NAME = 'estimation-tracker-v6';
 const FILES_TO_CACHE = [
   './index.html',
   './manifest.json',
@@ -23,7 +23,13 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Only handle same-origin GETs from the cache; let Firebase / gstatic requests
+  // (needed for live sharing) go straight to the network.
+  if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) {
+    return;
+  }
+  // ignoreSearch so a ?spectate=<id> link still resolves to the cached shell offline.
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    caches.match(event.request, { ignoreSearch: true }).then((cached) => cached || fetch(event.request))
   );
 });

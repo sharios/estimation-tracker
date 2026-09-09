@@ -274,6 +274,61 @@ button.undo-btn { background: #757575; }
 button.new-btn { background: #d32f2f; }
 button.load-btn { background: #6a1b9a; }
 button.history-btn { background: #00bcd4; }
+button.share-btn { background: #2e7d32; }
+
+/* --- SHARE / SPECTATOR --- */
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: 20px;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    max-width: 90%;
+    text-align: center;
+    z-index: 2000;
+}
+.share-box { display: flex; flex-direction: column; gap: 10px; }
+.share-hint { margin: 0; font-size: 0.85rem; color: #666; }
+.share-url {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    text-align: center;
+}
+.share-actions { display: flex; gap: 10px; }
+.spectator-bar { align-items: center; gap: 8px; }
+.spectator-bar button { flex: 0 0 auto; }
+.spectator-label { font-weight: bold; white-space: nowrap; }
+.spectator-updated { color: #666; font-size: 0.8rem; white-space: nowrap; }
+.status-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: #bdbdbd;
+}
+.status-dot.status-live { background: #2e7d32; }
+.status-dot.status-offline,
+.status-dot.status-error { background: #f9a825; }
+.status-dot.status-notfound { background: #d32f2f; }
+.spectator .clickable { cursor: default; }
+.spectator-message {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    text-align: center;
+    background: #fff;
+}
 
 /* Load Game list */
 .game-list {
@@ -838,7 +893,8 @@ const {
   useState,
   useReducer,
   useEffect,
-  useCallback
+  useCallback,
+  useRef
 } = React;
 
 // --- UTILITY HOOK: Local Storage Management ---
@@ -1539,6 +1595,150 @@ const HistoryTable = ({
   }, row.playerData.reduce((sum, d) => sum + d.bid, 0) - 13)))))));
 };
 
+// --- SHARE VIA FIREBASE (lazy-loaded; never touched during offline play) ---
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBT8ZaiP1VTQS51D0hV8qMOAW2suCDyyXk",
+  authDomain: "hearts-meet-278a4.firebaseapp.com",
+  databaseURL: "https://hearts-meet-278a4-default-rtdb.firebaseio.com",
+  projectId: "hearts-meet-278a4",
+  storageBucket: "hearts-meet-278a4.firebasestorage.app",
+  messagingSenderId: "1022772213934",
+  appId: "1:1022772213934:web:27f37e4ebced6524b4953f"
+};
+const FIREBASE_V = '10.12.2';
+const SHARE_MAP_KEY = 'estimationTrackerShareMap';
+
+const loadScriptOnce = src => new Promise((resolve, reject) => {
+  const existing = document.querySelector(`script[data-fb="${src}"]`);
+  if (existing) {
+    if (existing.dataset.loaded) return resolve();
+    existing.addEventListener('load', () => resolve());
+    existing.addEventListener('error', () => reject(new Error('script failed: ' + src)));
+    return;
+  }
+  const el = document.createElement('script');
+  el.src = src;
+  el.async = true;
+  el.dataset.fb = src;
+  el.addEventListener('load', () => { el.dataset.loaded = '1'; resolve(); });
+  el.addEventListener('error', () => reject(new Error('script failed: ' + src)));
+  document.head.appendChild(el);
+});
+
+let _firebasePromise = null;
+// Resolves to { firebase, db, uid }; rejects AND resets on any failure so callers can retry later.
+const getFirebase = () => {
+  if (!_firebasePromise) {
+    _firebasePromise = (async () => {
+      const base = `https://www.gstatic.com/firebasejs/${FIREBASE_V}`;
+      await loadScriptOnce(`${base}/firebase-app-compat.js`);
+      await Promise.all([
+        loadScriptOnce(`${base}/firebase-auth-compat.js`),
+        loadScriptOnce(`${base}/firebase-database-compat.js`)
+      ]);
+      const firebase = window.firebase;
+      const app = (firebase.apps && firebase.apps.length) ? firebase.app() : firebase.initializeApp(FIREBASE_CONFIG);
+      const cred = await firebase.auth(app).signInAnonymously();
+      return { firebase, db: firebase.database(app), uid: cred.user.uid };
+    })().catch(err => { _firebasePromise = null; throw err; });
+  }
+  return _firebasePromise;
+};
+
+const makeShareId = () => {
+  const b = new Uint8Array(12);
+  if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(b);
+  else for (let i = 0; i < b.length; i++) b[i] = Math.floor(Math.random() * 256);
+  return Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+};
+
+// Firebase Realtime DB silently drops nulls and empty arrays, so the game-state
+// shape would not survive a round-trip. Store it as one opaque JSON string instead.
+const encodeState = state => JSON.stringify(state);
+const decodeState = raw => {
+  try { return typeof raw === 'string' ? JSON.parse(raw) : null; }
+  catch (e) { return null; }
+};
+
+const spectateUrl = id => `${window.location.origin}${window.location.pathname}?spectate=${id}`;
+
+const relativeTime = ts => {
+  if (!ts) return '';
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 5) return 'just now';
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.round(s / 60) + 'm ago';
+  return Math.round(s / 3600) + 'h ago';
+};
+
+// --- SPECTATOR: read-only live view, opened via ?spectate=<id> ---
+const SpectatorApp = ({ gameId }) => {
+  const [remote, setRemote] = useState(null);
+  const [status, setStatus] = useState('connecting');
+  const [view, setView] = useState('scoreboard');
+  const [, bump] = useState(0);
+
+  // Re-render every 20s so the "updated Ns ago" label stays fresh.
+  useEffect(() => {
+    const t = setInterval(() => bump(n => n + 1), 20000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false, gameRef = null, connRef = null;
+    getFirebase().then(({ db }) => {
+      if (cancelled) return;
+      gameRef = db.ref('games/' + gameId);
+      connRef = db.ref('.info/connected');
+      connRef.on('value', snap => {
+        if (cancelled) return;
+        setStatus(prev => (prev === 'notfound' ? prev : (snap.val() ? 'live' : 'offline')));
+      });
+      gameRef.on('value', snap => {
+        if (cancelled) return;
+        const val = snap.val();
+        const parsed = val && decodeState(val.state);
+        if (!parsed) { setStatus('notfound'); return; }
+        setRemote({ state: parsed, updatedAt: val.updatedAt });
+        setStatus('live');
+      }, () => { if (!cancelled) setStatus('error'); });
+    }).catch(() => { if (!cancelled) setStatus('error'); });
+    return () => {
+      cancelled = true;
+      try { if (gameRef) gameRef.off(); if (connRef) connRef.off(); } catch (e) {}
+    };
+  }, [gameId]);
+
+  const noop = () => {};
+  const s = remote && remote.state;
+  const headline =
+    status === 'notfound' ? 'Game not found or sharing was stopped'
+    : status === 'error' ? 'Connection problem — still trying…'
+    : status === 'offline' ? 'Offline — reconnecting…'
+    : s ? `Spectating · Round ${s.currentRound}` : 'Connecting…';
+
+  return /*#__PURE__*/React.createElement("div", { id: "game-container", className: "spectator" },
+    /*#__PURE__*/React.createElement("div", { id: "top-menu", className: "spectator-bar" },
+      /*#__PURE__*/React.createElement("span", { className: "status-dot status-" + status }),
+      /*#__PURE__*/React.createElement("span", { className: "spectator-label" }, headline),
+      s && /*#__PURE__*/React.createElement("span", { className: "spectator-updated" }, "updated " + relativeTime(remote.updatedAt)),
+      s && /*#__PURE__*/React.createElement("button", {
+        className: "history-btn",
+        onClick: () => setView(view === 'scoreboard' ? 'history' : 'scoreboard')
+      }, view === 'scoreboard' ? 'DETAILS' : 'SCOREBOARD')
+    ),
+    s
+      ? (view === 'scoreboard'
+          ? /*#__PURE__*/React.createElement(Scoreboard, { state: s, openSuitModal: noop, openNameModal: noop, openValueModal: noop })
+          : /*#__PURE__*/React.createElement(HistoryTable, { state: s, setView: noop }))
+      : /*#__PURE__*/React.createElement("div", { className: "spectator-message" },
+          /*#__PURE__*/React.createElement("p", null,
+            status === 'notfound' ? 'This shared game is no longer available.'
+            : status === 'error' ? "Couldn't connect. Check your internet — this page keeps retrying automatically."
+            : 'Loading live scoreboard…'))
+  );
+};
+
 // --- 9. MAIN APP COMPONENT ---
 const App = () => {
   const [state, dispatch] = useReducer(gameReducer, INITIAL_GAME_STATE);
@@ -1550,6 +1750,15 @@ const App = () => {
   const [view, setView] = useState('scoreboard');
   const defaultNames = ["Player 1", "Player 2", "Player 3", "Player 4"];
   const [knownNames, setKnownNames] = useLocalStorage('knownPlayerNames', defaultNames);
+  const [shareMap, setShareMap] = useLocalStorage(SHARE_MAP_KEY, {});
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+  const syncTimer = useRef(null);
+  const showToast = msg => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 4000);
+  };
 
   // --- EFFECT: Load the most recent saved game on startup, or start a new one ---
   useEffect(() => {
@@ -1589,6 +1798,24 @@ const App = () => {
     if (!state.gameID) return;
     upsertSavedGame(state.gameID, state);
   }, [state.gameID, state.players.map(p => p.name).join('|')]);
+
+  // --- EFFECT: push a shared game to Firebase on every change (debounced, best-effort) ---
+  // Failures are swallowed: losing connectivity must never disrupt the tracker itself.
+  // The Firebase SDK also queues writes while offline and flushes them on reconnect.
+  useEffect(() => {
+    const shareId = state.gameID && shareMap[state.gameID];
+    if (!shareId) return;
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(() => {
+      getFirebase()
+        .then(({ db, firebase }) => db.ref('games/' + shareId).update({
+          state: encodeState(state),
+          updatedAt: firebase.database.ServerValue.TIMESTAMP
+        }))
+        .catch(err => console.warn('Live-share sync failed (will retry on next change):', err));
+    }, 700);
+    return () => { if (syncTimer.current) clearTimeout(syncTimer.current); };
+  }, [state, shareMap]);
 
   // --- HANDLERS ---
   const handleNext = () => dispatch({
@@ -1643,6 +1870,92 @@ const App = () => {
       content
     });
   };
+  const openShareModal = async () => {
+    if (!state.gameID) return;
+    if (!navigator.onLine) {
+      showToast("You're offline — connect once to start sharing.");
+      return;
+    }
+    const existingId = shareMap[state.gameID];
+    setModal({
+      show: true,
+      title: 'Share Live Scoreboard',
+      content: /*#__PURE__*/React.createElement("p", null, existingId ? 'Checking share…' : 'Starting share…')
+    });
+    try {
+      const { db, firebase, uid } = await getFirebase();
+      const write = id => db.ref('games/' + id).set({
+        ownerUid: uid,
+        state: encodeState(state),
+        updatedAt: firebase.database.ServerValue.TIMESTAMP
+      });
+      let shareId = existingId;
+      if (shareId) {
+        // Re-use the existing link, unless we've lost write access to it (e.g. site data cleared).
+        try { await write(shareId); } catch (e) { shareId = null; }
+      }
+      if (!shareId) {
+        shareId = makeShareId();
+        await write(shareId);
+        setShareMap({ ...shareMap, [state.gameID]: shareId });
+      }
+      showShareLink(spectateUrl(shareId));
+    } catch (err) {
+      console.error('Share failed:', err);
+      setModal(m => ({
+        ...m,
+        content: /*#__PURE__*/React.createElement("p", null, "Couldn't start sharing. Check your connection and try again.")
+      }));
+    }
+  };
+
+  const showShareLink = url => {
+    const copy = () => {
+      const p = (navigator.clipboard && navigator.clipboard.writeText)
+        ? navigator.clipboard.writeText(url)
+        : Promise.reject();
+      p.then(() => showToast('Link copied'))
+       .catch(() => showToast('Could not copy — long-press the link to copy it'));
+    };
+    const nativeShare = () => {
+      if (navigator.share) {
+        navigator.share({ title: 'Estimation — live scoreboard', text: 'Follow our game live:', url }).catch(() => {});
+      } else {
+        copy();
+      }
+    };
+    const stopSharing = async () => {
+      const shareId = shareMap[state.gameID];
+      const next = { ...shareMap };
+      delete next[state.gameID];
+      setShareMap(next);
+      closeModal();
+      showToast('Sharing stopped');
+      try {
+        const { db } = await getFirebase();
+        await db.ref('games/' + shareId).remove();
+      } catch (e) { /* best-effort cleanup */ }
+    };
+    const actions = [
+      /*#__PURE__*/React.createElement("button", { key: 's', onClick: nativeShare }, navigator.share ? 'Share…' : 'Copy link')
+    ];
+    if (navigator.share) {
+      actions.push(/*#__PURE__*/React.createElement("button", { key: 'c', className: 'load-btn', onClick: copy }, 'Copy link'));
+    }
+    const content = /*#__PURE__*/React.createElement("div", { className: "share-box" },
+      /*#__PURE__*/React.createElement("p", { className: "share-hint" },
+        'Anyone with this link watches the scoreboard update live as the game goes on. No app or account needed.'),
+      /*#__PURE__*/React.createElement("input", {
+        className: "share-url", readOnly: true, value: url, onFocus: e => e.target.select()
+      }),
+      /*#__PURE__*/React.createElement("div", { className: "share-actions" }, actions),
+      /*#__PURE__*/React.createElement("button", {
+        className: "undo-btn", style: { marginTop: '12px' }, onClick: stopSharing
+      }, 'Stop sharing')
+    );
+    setModal({ show: true, title: 'Share Live Scoreboard', content });
+  };
+
   const handleUndo = () => {
     let warningMessage = "";
     if (state.currentStage === 1) {
@@ -1809,6 +2122,11 @@ const App = () => {
     onClick: openLoadModal,
     className: "load-btn"
   }, "LOAD"), /*#__PURE__*/React.createElement("button", {
+    id: "share-btn",
+    onClick: openShareModal,
+    className: "share-btn",
+    disabled: !state.isGameActive
+  }, shareMap[state.gameID] ? "SHARED" : "SHARE"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setView(view === 'scoreboard' ? 'history' : 'scoreboard'),
     className: "history-btn"
   }, view === 'scoreboard' ? 'DETAILS' : 'SCOREBOARD')), view === 'scoreboard' ? /*#__PURE__*/React.createElement(Scoreboard, {
@@ -1833,11 +2151,18 @@ const App = () => {
   }, "UNDO")), /*#__PURE__*/React.createElement(Modal, {
     ...modal,
     onClose: closeModal
-  }));
+  }), toast && /*#__PURE__*/React.createElement("div", {
+    className: "toast"
+  }, toast));
 };
 
-// Render the main component
-ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
+// Render: spectator view for ?spectate=<id> links, otherwise the full tracker.
+const _spectateId = new URLSearchParams(window.location.search).get('spectate');
+ReactDOM.createRoot(document.getElementById('root')).render(
+  _spectateId
+    ? /*#__PURE__*/React.createElement(SpectatorApp, { gameId: _spectateId })
+    : /*#__PURE__*/React.createElement(App, null)
+);
     </script>
 
     <script>
