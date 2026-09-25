@@ -569,6 +569,44 @@ button.share-btn { background: #2e7d32; }
     font-size: 1.2rem;
     margin-right: 3px;
 }
+
+/* --- SUMMARY TABLE (above the Details table) --- */
+.summary-table-wrap {
+    flex: none;
+    overflow-x: auto;
+    margin-bottom: 8px;
+}
+
+.summary-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    table-layout: fixed;
+}
+
+.summary-table th, .summary-table td {
+    border: 1px solid #ddd;
+    padding: 4px 3px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.summary-table th {
+    background-color: var(--history-header);
+    color: white;
+    font-weight: bold;
+}
+
+.summary-table tr:nth-child(even) {
+    background-color: #f7f7f7;
+}
+
+.summary-table .summary-label {
+    font-weight: bold;
+    text-align: left;
+}
     </style>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon-192.png">
@@ -1523,7 +1561,58 @@ const Scoreboard = ({
   id: "difference-display"
 }, state.currentRoundState.bidDifference)));
 
-// --- 8. HISTORY TABLE COMPONENT ---
+// --- 8. SUMMARY TABLE (per-player stats shown above the Details table) ---
+const formatPct = (count, total) => total === 0 ? '–' : `${Math.round(count / total * 100)}%`;
+const getPlayerStats = roundData => {
+  const played = roundData.length;
+  const won = roundData.filter(d => d.bid === d.trick).length;
+  const lost = played - won;
+  const lostUnder = roundData.filter(d => d.trick < d.bid).length;
+  // 'C' marks the highest bidder (ties included), set in calculateBidModifiers.
+  const calls = roundData.filter(d => (d.bidAmendments || '').includes('C'));
+  const bigCalls = calls.filter(d => d.bid >= 8).length;
+  return {
+    played,
+    won,
+    lost,
+    lostUnder,
+    calls: calls.length,
+    bigCalls
+  };
+};
+const SummaryTable = ({
+  players
+}) => {
+  const stats = players.map(p => getPlayerStats(p.roundData));
+  const rows = [{
+    label: 'Won',
+    cell: s => `${formatPct(s.won, s.played)} (${s.won}/${s.played})`
+  }, {
+    label: 'Lost under',
+    cell: s => `${formatPct(s.lostUnder, s.lost)} (${s.lostUnder}/${s.lost})`
+  }, {
+    label: 'Call',
+    cell: s => `${formatPct(s.calls, s.played)} (${s.calls}/${s.played})`
+  }, {
+    label: 'Call 8+',
+    cell: s => s.bigCalls
+  }];
+  return /*#__PURE__*/React.createElement("div", {
+    className: "summary-table-wrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "summary-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null), players.map((p, i) => /*#__PURE__*/React.createElement("th", {
+    key: i
+  }, p.name)))), /*#__PURE__*/React.createElement("tbody", null, rows.map(row => /*#__PURE__*/React.createElement("tr", {
+    key: row.label
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "summary-label"
+  }, row.label), stats.map((s, i) => /*#__PURE__*/React.createElement("td", {
+    key: i
+  }, row.cell(s))))))));
+};
+
+// --- 9. HISTORY TABLE COMPONENT ---
 const HistoryTable = ({
   state,
   setView
@@ -1558,7 +1647,9 @@ const HistoryTable = ({
   }
   return /*#__PURE__*/React.createElement("div", {
     id: "history-container"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(SummaryTable, {
+    players: state.players
+  }), /*#__PURE__*/React.createElement("div", {
     className: "history-table-scroll"
   }, /*#__PURE__*/React.createElement("table", {
     className: "history-table"
@@ -1739,7 +1830,7 @@ const SpectatorApp = ({ gameId }) => {
   );
 };
 
-// --- 9. MAIN APP COMPONENT ---
+// --- 10. MAIN APP COMPONENT ---
 const App = () => {
   const [state, dispatch] = useReducer(gameReducer, INITIAL_GAME_STATE);
   const [modal, setModal] = useState({
