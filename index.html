@@ -75,7 +75,27 @@ body {
 /* Specific Column Widths */
 #round-suit-col { flex: 0.8; background-color: #e3f2fd; }
 .player-col     { flex: 1.2; }
-#difference-col { flex: 0.8; background-color: #fff3e0; }
+#right-col {
+    flex: 0.8;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+#difference-col { flex: 1; background-color: #fff3e0; justify-content: center; min-height: 0; }
+#team-scores-col { flex: 2; background-color: #e8f5e9; justify-content: space-evenly; min-height: 0; }
+.team-score-block { display: flex; flex-direction: column; align-items: center; min-width: 0; max-width: 100%; }
+.team-names {
+    font-size: 0.8rem;
+    font-weight: bold;
+    color: #555;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.team-total { font-size: 1.6rem; font-weight: bold; color: #2e7d32; }
+.team-vs { font-size: 0.9rem; font-weight: bold; color: #888; }
 
 /* Text Sizing for Mobile */
 .player-name {
@@ -1521,6 +1541,33 @@ const PlayerColumn = ({
   }, currentRoundState.roundScores[playerIndex] || 0)));
 };
 
+// --- 6b. TEAM SCORES (players 1+3 vs players 2+4) ---
+const TeamScores = ({
+  players
+}) => {
+  const teams = [[0, 2], [1, 3]].map(([a, b]) => ({
+    names: `${players[a].name} + ${players[b].name}`,
+    total: players[a].totalScore + players[b].totalScore
+  }));
+  const teamBlock = (t, i) => /*#__PURE__*/React.createElement("div", {
+    className: "team-score-block",
+    key: i
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "team-names",
+    title: t.names
+  }, t.names), /*#__PURE__*/React.createElement("div", {
+    className: "team-total"
+  }, t.total));
+  return /*#__PURE__*/React.createElement("div", {
+    id: "team-scores-col",
+    className: "grid-item"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "difference-label"
+  }, "Teams"), teamBlock(teams[0], 0), /*#__PURE__*/React.createElement("div", {
+    className: "team-vs"
+  }, "vs"), teamBlock(teams[1], 1));
+};
+
 // --- 7. SCOREBOARD COMPONENT ---
 const Scoreboard = ({
   state,
@@ -1553,13 +1600,17 @@ const Scoreboard = ({
   onOpenNameModal: openNameModal,
   onOpenValueModal: openValueModal
 })), /*#__PURE__*/React.createElement("div", {
+  id: "right-col"
+}, /*#__PURE__*/React.createElement("div", {
   id: "difference-col",
   className: "grid-item"
 }, /*#__PURE__*/React.createElement("div", {
   className: "difference-label"
 }, "Diff"), /*#__PURE__*/React.createElement("div", {
   id: "difference-display"
-}, state.currentRoundState.bidDifference)));
+}, state.currentRoundState.bidDifference)), /*#__PURE__*/React.createElement(TeamScores, {
+  players: state.players
+})));
 
 // --- 8. SUMMARY TABLE (per-player stats shown above the Details table) ---
 const formatPct = (count, total) => total === 0 ? '–' : `${Math.round(count / total * 100)}%`;
