@@ -96,6 +96,8 @@ body {
 }
 .team-total { font-size: 1.6rem; font-weight: bold; color: #2e7d32; }
 .team-vs { font-size: 0.9rem; font-weight: bold; color: #888; }
+#team-scores-col.team-scores-hidden { justify-content: center; }
+.team-toggle-prompt { font-size: 1rem; font-weight: bold; color: #2e7d32; padding: 0 4px; }
 
 /* Text Sizing for Mobile */
 .player-name {
@@ -1545,10 +1547,24 @@ const PlayerColumn = ({
 const TeamScores = ({
   players
 }) => {
+  const [visible, setVisible] = React.useState(false);
+  const toggle = () => setVisible(v => !v);
+  if (!visible) {
+    return /*#__PURE__*/React.createElement("div", {
+      id: "team-scores-col",
+      className: "grid-item clickable team-scores-hidden",
+      onClick: toggle
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "team-toggle-prompt"
+    }, "Display team scores"));
+  }
   const teams = [[0, 2], [1, 3]].map(([a, b]) => ({
     names: `${players[a].name} + ${players[b].name}`,
     total: players[a].totalScore + players[b].totalScore
   }));
+  // Only crown a team once the totals actually differ.
+  const maxTotal = Math.max(teams[0].total, teams[1].total);
+  const totalsDiffer = teams[0].total !== teams[1].total;
   const teamBlock = (t, i) => /*#__PURE__*/React.createElement("div", {
     className: "team-score-block",
     key: i
@@ -1557,10 +1573,11 @@ const TeamScores = ({
     title: t.names
   }, t.names), /*#__PURE__*/React.createElement("div", {
     className: "team-total"
-  }, t.total));
+  }, t.total, totalsDiffer && t.total === maxTotal && ' 👑'));
   return /*#__PURE__*/React.createElement("div", {
     id: "team-scores-col",
-    className: "grid-item"
+    className: "grid-item clickable",
+    onClick: toggle
   }, /*#__PURE__*/React.createElement("div", {
     className: "difference-label"
   }, "Teams"), teamBlock(teams[0], 0), /*#__PURE__*/React.createElement("div", {
